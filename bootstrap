@@ -17,21 +17,21 @@
 #
 # Invoke bootstrap with:
 #
-#   curl -L bootstrap.yadm.io | bash
+#   curl -L github.com/cwarlich/yadm/raw/main/bootstrap | bash
 #
 #     OR
 #
-#   curl -L bootstrap.yadm.io | bash [-s -- REPO_URL [YADM_RELEASE]]
+#   curl -L github.com/cwarlich/yadm/raw/main/bootstrap | bash [-s -- REPO_URL [YADM_RELEASE]]
 #
 # Alternatively, source in this file to export a yadm() function which uses
 # yadm remotely until it is locally installed.
 #
-#   source <(curl -L bootstrap.yadm.io)
+#   source <(curl -L github.com/cwarlich/yadm/raw/main/bootstrap)
 #
 
-YADM_REPO="https://github.com/TheLocehiliosan/yadm"
-YADM_RELEASE=${release:-master}
-REPO_URL=""
+YADM_REPO="https://github.com/cwarlich/yadm"
+YADM_RELEASE=${release:-main}
+REPO_URL="https://github.com/cwarlich/dotfiles"
 
 function _private_yadm() {
   unset -f yadm
@@ -42,7 +42,8 @@ function _private_yadm() {
   else
     function yadm() { _private_yadm "$@"; }; export -f yadm
     echo WARNING: Using yadm remotely. You should install yadm locally.
-    curl -fsSL "$YADM_REPO/raw/$YADM_RELEASE/yadm" | bash -s -- "$@"
+    #curl -fsSL "$YADM_REPO/raw/$YADM_RELEASE/yadm" | bash -s -- "$@"
+    bash <(curl -fsSL "$YADM_REPO/raw/$YADM_RELEASE/yadm") "$@"
   fi
 }
 export -f _private_yadm
@@ -51,9 +52,11 @@ function yadm() { _private_yadm "$@"; }; export -f yadm
 # if being sourced, return here, otherwise continue processing
 return 2>/dev/null
 unset -f yadm
+export PATH="~/.local/bin:$PATH"
 
 function remote_yadm() {
-  curl -fsSL "$YADM_REPO/raw/$YADM_RELEASE/yadm" | bash -s -- "$@"
+  #curl -fsSL "$YADM_REPO/raw/$YADM_RELEASE/yadm" | bash -s -- "$@"
+  bash <(curl -fsSL "$YADM_REPO/raw/$YADM_RELEASE/yadm") "$@"
 }
 
 function ask_about_source() {
@@ -124,7 +127,7 @@ function main() {
   [ -z "$REPO_URL" ] && echo "Unable to determine the repo URL" && exit 1
 
   echo "Using URL: $REPO_URL"
-  remote_yadm clone "$REPO_URL"
+  remote_yadm clone --recursive --bootstrap "$REPO_URL"
 
   ask_about_source
 
