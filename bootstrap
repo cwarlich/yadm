@@ -52,7 +52,6 @@ function yadm() { _private_yadm "$@"; }; export -f yadm
 # if being sourced, return here, otherwise continue processing
 return 2>/dev/null
 unset -f yadm
-export PATH="~/.local/bin:$PATH"
 
 function remote_yadm() {
   #curl -fsSL "$YADM_REPO/raw/$YADM_RELEASE/yadm" | bash -s -- "$@"
