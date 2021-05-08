@@ -1,0 +1,88 @@
+#!/bin/bash -e
+# Usage: "$0" or "$0 <prefix>" for non-interactive installation.
+# or run as
+# bash <(curl -L https://github.com/cwarlich/yadm/raw/main/install) [<prefix>]
+url="https://github.com/cwarlich/yadm/raw/main"
+install() {
+	local  i
+	# shellcheck disable=SC2034
+	declare -a bin=("yadm" "testhost")
+	# shellcheck disable=SC2034
+	declare -a man=("yadm.1")
+	# shellcheck disable=SC2034
+	declare -a doc=(
+		"LICENSE"
+		"CHANGES"
+		"CONTRIBUTORS"
+		"README.md"
+		"completion/bash/yadm"
+		"completion/zsh/_yadm"
+		"completion/fish/yadm.fish"
+		"completion/README.md"
+	)
+	declare -A dest=(
+		["bin"]="bin"
+		["man"]="share/man/man1"
+		["doc"]="share/doc"
+	)
+	for i in "bin" "man" "doc"; do
+		# shellcheck disable=SC1087
+		x="$i[@]"
+		x=("${!x}")
+		for j in "${x[@]}"; do
+			o="$1/${dest["$i"]}/$j"
+			while [[ ! -e $o ]]; do o="$(dirname "$o")"; done
+			[[ -w $o ]] || {
+				[[ -z $o ]] || echo "Cannot write $o".
+				echo "Nothing changed."
+				exit 1
+			}
+		done
+	done
+	[[ $1 != / ]] || set -- "";
+	for i in "bin" "man" "doc"; do
+		# shellcheck disable=SC1087
+		# shellcheck disable=SC2178
+		x="$i[@]"
+		x=("${!x}")
+		for j in "${x[@]}"; do
+			dir="$(dirname "$1/${dest["$i"]}/$j")"
+			[[ -e $dir ]] || mkdir -p "$dir"
+			rm -f "$1/${dest["$i"]}/$j" # could be a link.
+			echo "write $url/$j to $1/${dest["$i"]}/$j" >&2
+			curl -sL "$url/$j" -o "$1/${dest["$i"]}/$j"
+			[[ $i != bin ]] || chmod +x "$1/${dest["$i"]}/$j"
+		done
+	done
+	if [[ $1 == $HOME/* ]]; then
+		clc="${BASH_COMPLETION_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion}/completions"
+	else
+		if type -P pkg-config >/dev/null; then
+			clc="$(pkg-config --variable=completionsdir bash-completion)"
+		else
+			# shellcheck disable=SC2016
+			clc='$(pkg-config --variable=completionsdir bash-completion)'
+		fi
+	fi
+	echo "You may want to read $1/share/doc/completion/README.md to" >&2
+	echo "enable command line completion for yadm." >&2
+	echo "Furthermore, for bash command line completion on a rather" >&2
+	echo "recent system, you may want to link or copy" >&2
+	echo "$1/share/doc/completion/bash/yadm to $clc/yadm." >&2
+}
+[[ -z $1 ]] || { install "$1"; exit; }
+if prg="$(type -P yadm)"; then
+	pre="$(dirname "$(dirname "$prg")")"
+	read -srn1 -p "yadm is already installed under $pre. Replace (y/n)? " yn
+	# shellcheck disable=SC2086
+	echo $yn
+	[[ $yn != y ]] || { install "$pre"; exit; }
+fi
+echo "This is your current PATH:"
+echo "$PATH"
+def="/usr/local"
+msg="Enter the prefix for the yadm bin and man directories:"
+read -rp "$msg ($def): " path # Note that the following empty line is required when piped to stdin of bash.
+
+: "${path:="$def"}"
+install "$path"

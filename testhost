@@ -28,21 +28,28 @@ TRACK "${DOCKER[@]}" build "-${q}t" testhost - "<<-EOF
 			echo "	RUN apt-get clean"
 			;;
 	esac)
-	RUN sed -i -e\"s/-o '.*'/-a $USER/\" /lib/systemd/system/console-getty.service
+	RUN echo '#!/bin/bash' >'/sbin/mygetty'
+	RUN echo '/sbin/agetty \"\\\$@\"' >>'/sbin/mygetty'
+	RUN echo '/sbin/poweroff -p' >>'/sbin/mygetty'
+	RUN chmod +x '/sbin/mygetty'
+	RUN sed -i -e\"s/agetty -o '.*'/mygetty -a $USER/\" /lib/systemd/system/console-getty.service
 	RUN echo 'rm -f /home/$USER/.profile' >>'/home/$USER/.profile'
 	RUN echo 'export XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR' >>'/home/$USER/.profile'
 	RUN echo 'sudo systemctl start user@$(id -u $USER)' >>'/home/$USER/.profile'
 	RUN echo 'mkdir -p /run/user/$(id -u $USER)/gnupg' >>'/home/$USER/.profile'
-	RUN echo 'ln -sf /home/$USER/.gnupg/S.gpg-agent /run/user/$(id -u $USER)/gnupg/S.gpg-agent' >>'/home/$USER/.profile'
-	RUN echo 'PATH="$HOME/.local/bin/yadm:$PATH" bash <(curl -L github.com/cwarlich/yadm/raw/main/bootstrap)' >>'/home/$USER/.profile'
+	RUN echo 'ln -sf /var/gnupg/S.gpg-agent /home/$USER/.gnupg/S.gpg-agent' >>'/home/$USER/.profile'
+	RUN echo 'curl -L github.com/cwarlich/yadm/raw/main/install | sudo bash' >>'/home/$USER/.profile'
+	$(if [[ -n $1 ]]; then
+		echo "RUN echo 'yadm clone --recursive --bootstrap $1' >>'/home/$USER/.profile'"
+	else
+		echo "RUN echo 'echo Run \"yadm clone --recursive --bootstrap <dotfile-repo>\"' >>'/home/$USER/.profile'"
+	fi)
 	RUN echo 'exec bash -l' >>'/home/$USER/.profile'
-	RUN echo 'sudo halt' >>'/home/$USER/.bash_logout'
-	RUN chown $USER.$USER '/home/$USER/.bash_logout'
 	RUN mkdir -p /home/$USER/.gnupg
 	RUN chown $USER.$USER /home/$USER/.gnupg
 	RUN chmod 700 /home/$USER/.gnupg
 EOF
 "
 TRACK "${DOCKER[@]}" run --rm -ithtesthost --privileged \
-	-v/run/user/$(id -u $USER)/gnupg/S.gpg-agent:/home/$USER/.gnupg/S.gpg-agent \
+	-v/run/user/$(id -u $USER)/gnupg/S.gpg-agent:/var/gnupg/S.gpg-agent \
 	testhost "$@"
