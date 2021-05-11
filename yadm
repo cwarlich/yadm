@@ -99,7 +99,7 @@ function main() {
 
   # parse command line arguments
   local retval=0
-  internal_commands="^(alt|bootstrap|clean|clone|config|decrypt|encrypt|enter|git-crypt|help|--help|init|introspect|list|perms|transcrypt|upgrade|version|--version)$"
+  internal_commands="^(checkout|alt|bootstrap|clean|clone|config|decrypt|encrypt|enter|git-crypt|help|--help|init|introspect|list|perms|transcrypt|upgrade|version|--version)$"
   if [ -z "$*" ] ; then
     # no argumnts will result in help()
     help
@@ -111,7 +111,7 @@ function main() {
     shift
 
     # commands listed below do not process any of the parameters
-    if [[ "$YADM_COMMAND" =~ ^(enter|git_crypt)$ ]] ; then
+    if [[ "$YADM_COMMAND" =~ ^(checkout|enter|git_crypt)$ ]] ; then
       YADM_ARGS=("$@")
     else
       while [[ $# -gt 0 ]] ; do
@@ -708,12 +708,8 @@ function clean() {
 
 }
 
-function clone() {
-
+function checkout() {
   DO_BOOTSTRAP=1
-  local -a args
-  local -i do_checkout=1
-  local -i do_submodules=0
   while [[ $# -gt 0 ]] ; do
     case "$1" in
       --bootstrap) # force bootstrap, without prompt
@@ -721,6 +717,58 @@ function clone() {
       ;;
       --no-bootstrap) # prevent bootstrap, without prompt
         DO_BOOTSTRAP=3
+      ;;
+      *)
+        args+=("$1")
+      ;;
+    esac
+    shift
+  done
+
+  git_command checkout "${args[@]}"
+
+  "$GIT_PROGRAM" ls-files --deleted | while IFS= read -r file; do
+      "$GIT_PROGRAM" checkout -- ":/$file"
+  done
+
+  if [[ $do_submodules -ne 0 ]]; then
+      "$GIT_PROGRAM" submodule update --recursive
+  fi
+
+  if [ -n "$("$GIT_PROGRAM" ls-files --modified)" ]; then
+    local msg
+    IFS='' read -r -d '' msg <<-EOF
+	**NOTE**
+	Local files with content that differs from the ones just
+	cloned were found in $YADM_WORK. They have been left
+	unmodified.
+
+	Please review and resolve any differences appropriately.
+	If you know what you're doing, and want to overwrite the
+	tracked files, consider 'yadm checkout "$YADM_WORK"'.
+	EOF
+        printf '%s\n' "$msg"
+  fi
+}
+
+function clone() {
+
+  DO_BOOTSTRAP=3
+  local -a args
+  local -i do_checkout=0
+  local -i do_submodules=1
+  while [[ $# -gt 0 ]] ; do
+    case "$1" in
+      --bootstrap) # force bootstrap, without prompt
+        DO_BOOTSTRAP=2
+        do_checkout=1
+      ;;
+      --no-bootstrap) # prevent bootstrap, without prompt
+        DO_BOOTSTRAP=3
+      ;;
+      --ask-bootstrap) # prompt for bootstrap
+        DO_BOOTSTRAP=1
+        do_checkout=1
       ;;
       --checkout)
         do_checkout=1
@@ -788,6 +836,8 @@ function clone() {
     done
   fi
 
+  "$GIT_PROGRAM" submodule init
+
   # finally check out (unless instructed not to) all files that don't exist in $YADM_WORK
   if [[ $do_checkout -ne 0 ]]; then
       [ -n "$DEBUG" ] && display_private_perms "pre-checkout"
@@ -799,7 +849,7 @@ function clone() {
       done
 
       if [[ $do_submodules -ne 0 ]]; then
-          "$GIT_PROGRAM" submodule update --init --recursive
+          "$GIT_PROGRAM" submodule update --recursive
       fi
 
       if [ -n "$("$GIT_PROGRAM" ls-files --modified)" ]; then
@@ -820,6 +870,12 @@ EOF
       [ -n "$DEBUG" ] && display_private_perms "post-checkout"
 
       CHANGES_POSSIBLE=1
+  else
+      if ! git_command rev-parse --verify yadm_empty 2>/dev/null; then
+          git_command branch yadm_empty $(true | git_command commit-tree $(true | git_command mktree))
+      fi
+      cd_work "Clone" || return
+      git_command checkout yadm_empty
   fi
 
 }
@@ -1092,7 +1148,7 @@ function git_command() {
 
   # pass commands through to git
   debug "Running git command $GIT_PROGRAM $*"
-  "$GIT_PROGRAM" "$@"
+  TRACK "$GIT_PROGRAM" "$@"
   return "$?"
 }
 
@@ -1171,6 +1227,7 @@ function introspect() {
 function introspect_commands() {
   local msg
   read -r -d '' msg <<-EOF
+test
 alt
 bootstrap
 clean
