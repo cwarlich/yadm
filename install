@@ -6,7 +6,7 @@ url="https://github.com/cwarlich/yadm/raw/main"
 install() {
 	local  i
 	# shellcheck disable=SC2034
-	declare -a bin=("yadm" "testhost")
+	declare -a bin=("yadm")
 	# shellcheck disable=SC2034
 	declare -a man=("yadm.1")
 	# shellcheck disable=SC2034

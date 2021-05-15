@@ -99,7 +99,7 @@ function main() {
 
   # parse command line arguments
   local retval=0
-  internal_commands="^(checkout|alt|bootstrap|clean|clone|config|decrypt|encrypt|enter|git-crypt|help|--help|init|introspect|list|perms|transcrypt|upgrade|version|--version)$"
+  internal_commands="^(checkout|test|alt|bootstrap|clean|clone|config|decrypt|encrypt|enter|git-crypt|help|--help|init|introspect|list|perms|transcrypt|upgrade|version|--version)$"
   if [ -z "$*" ] ; then
     # no argumnts will result in help()
     help
@@ -111,7 +111,7 @@ function main() {
     shift
 
     # commands listed below do not process any of the parameters
-    if [[ "$YADM_COMMAND" =~ ^(checkout|enter|git_crypt)$ ]] ; then
+    if [[ "$YADM_COMMAND" =~ ^(checkout|test|enter|git_crypt)$ ]] ; then
       YADM_ARGS=("$@")
     else
       while [[ $# -gt 0 ]] ; do
@@ -706,6 +706,72 @@ function clean() {
 
   error_out "\"git clean\" has been disabled for safety. You could end up removing all unmanaged files."
 
+}
+
+function TRACK() { printf "\E[32m${*//	/}\n\E[m" >&2; eval "$@"; }
+function test() {
+	local DOCKER=(docker)
+	local DIST=fedora
+	TRACK "${DOCKER[@]}" build "-${q}t" testhost - "<<-EOF
+	    FROM $DIST
+	    RUN mkdir -p /etc/sudoers.d
+	    RUN echo '$USER ALL=(ALL:ALL) ALL' >/etc/sudoers.d/$USER
+	    RUN chmod 440 /etc/sudoers.d/$USER
+	    RUN echo '$USER::$(id -u $USER):$(id -g $USER)::/home/$USER:/bin/bash' >>/etc/passwd
+	    RUN mkdir -p '/home/$USER'
+	    RUN chown '$(id -u $USER).$(id -g $USER)' '/home/$USER'
+	    RUN echo '$USER:x:$(id -g $USER)' >>/etc/group
+	    CMD [ \"/sbin/init\" ]
+	    $(case "$DIST" in
+	        *fedora* | *centos*)
+	            echo RUN yum install -y \
+	                systemd git pinentry unzip fuse man-db vim \
+	                procps
+	            echo "    RUN dnf clean all"
+	            ;;
+	        *debian* | *ubuntu* | *mint*)
+	            echo "RUN apt-get update"
+	            echo "    "RUN DEBIAN_FRONTEND=noninteractive \
+	                apt-get install --yes --no-install-recommends \
+	                curl git vim-gtk gpg gpg-agent sudo \
+	                systemd-sysv dbus unzip man-db fuse procps
+	            echo "    RUN apt-get clean"
+	            ;;
+	    esac)
+	    RUN echo '#!/bin/bash' >'/sbin/mygetty'
+	    RUN echo '/sbin/agetty \"\\\$@\"' >>'/sbin/mygetty'
+	    RUN echo '/sbin/poweroff -p' >>'/sbin/mygetty'
+	    RUN chmod +x '/sbin/mygetty'
+	    RUN sed -i -e\"s/agetty -o '.*'/mygetty -a $USER/\" /lib/systemd/system/console-getty.service
+	    RUN mkdir -p /home/$USER/.gnupg
+	    RUN chown $USER.$USER /home/$USER/.gnupg
+	    RUN chmod 700 /home/$USER/.gnupg
+	    RUN echo 'alias dotty=\"git --git-dir=/home/$USER/.local/share/yadm/repo.git --work-tree=/home/$USER\"' >>'/etc/profile.d/dotty.sh'
+	    RUN echo 'git config --global user.name \"$(git config user.name)\"' >>'/home/$USER/.profile'
+	    RUN echo 'git config --global user.email \"$(git config user.email)\"' >>'/home/$USER/.profile'
+	    RUN echo 'rm -f /home/$USER/.profile' >>'/home/$USER/.profile'
+	    RUN echo 'export XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR' >>'/home/$USER/.profile'
+	    RUN echo 'sudo systemctl start user@$(id -u $USER)' >>'/home/$USER/.profile'
+	    RUN echo 'mkdir -p /run/user/$(id -u $USER)/gnupg' >>'/home/$USER/.profile'
+	    RUN echo 'ln -sf /var/gnupg/S.gpg-agent /home/$USER/.gnupg/S.gpg-agent' >>'/home/$USER/.profile'
+	    RUN echo 'curl -L github.com/cwarlich/yadm/raw/main/install | sudo bash' >>'/home/$USER/.profile'
+	    $(if [[ $# -ge 1 ]]; then
+	        echo "RUN echo 'yadm clone $1' >>'/home/$USER/.profile'"
+	        if [[ $# -ge 2 ]]; then
+	            echo "RUN echo 'yadm checkout --bootstrap $2' >>'/home/$USER/.profile'"
+	        else
+	            echo "RUN echo 'echo Run \"yadm checkout --bootstrap <commitish>\"' >>'/home/$USER/.profile'"
+	        fi
+	    else
+	        echo "RUN echo 'echo Run \"yadm clone <dotfile-repo>\"' >>'/home/$USER/.profile'"
+	        echo "RUN echo 'echo and \"yadm checkout --bootstrap <commitish>\"' >>'/home/$USER/.profile'"
+	    fi)
+	    RUN echo 'exec bash -l' >>'/home/$USER/.profile'
+	EOF
+	"
+	TRACK "${DOCKER[@]}" run --rm -ithtesthost --privileged \
+		-v/run/user/$(id -u $USER)/gnupg/S.gpg-agent:/var/gnupg/S.gpg-agent \
+		testhost
 }
 
 function checkout() {
