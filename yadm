@@ -24,8 +24,8 @@ fi
 VERSION=3.1.0
 
 YADM_WORK="$HOME"
-YADM_DIR=
-YADM_DATA=
+YADM_DATA=/var/local/lib/yadm/$USER
+YADM_DIR="$YADM_DATA"
 
 YADM_LEGACY_DIR="${HOME}/.yadm"
 YADM_LEGACY_ARCHIVE="files.gpg"
@@ -724,9 +724,9 @@ function test() {
 	    CMD [ \"/sbin/init\" ]
 	    $(case "$DIST" in
 	        *fedora* | *centos*)
-	            echo RUN yum install -y \
+	            echo RUN dnf install -y \
 	                systemd git pinentry unzip fuse man-db vim \
-	                procps
+	                procps bash-completion
 	            echo "    RUN dnf clean all"
 	            ;;
 	        *debian* | *ubuntu* | *mint*)
@@ -743,28 +743,29 @@ function test() {
 	    RUN echo '/sbin/poweroff -p' >>'/sbin/mygetty'
 	    RUN chmod +x '/sbin/mygetty'
 	    RUN sed -i -e\"s/agetty -o '.*'/mygetty -a $USER/\" /lib/systemd/system/console-getty.service
+	    RUN mkdir -p $YADM_DATA
+	    RUN chown $USER.$USER $YADM_DATA
 	    RUN mkdir -p /home/$USER/.gnupg
 	    RUN chown $USER.$USER /home/$USER/.gnupg
 	    RUN chmod 700 /home/$USER/.gnupg
+	    RUN curl -L github.com/cwarlich/yadm/raw/main/install | bash
+	    #RUN ln -s /usr/local/share/doc/completion/bash/yadm $(pkg-config --variable=completionsdir bash-completion)
 	    RUN echo 'alias dotty=\"git --git-dir=/home/$USER/.local/share/yadm/repo.git --work-tree=/home/$USER\"' >>'/etc/profile.d/dotty.sh'
-	    RUN echo 'git config --global user.name \"$(git config user.name)\"' >>'/home/$USER/.profile'
-	    RUN echo 'git config --global user.email \"$(git config user.email)\"' >>'/home/$USER/.profile'
 	    RUN echo 'rm -f /home/$USER/.profile' >>'/home/$USER/.profile'
 	    RUN echo 'export XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR' >>'/home/$USER/.profile'
 	    RUN echo 'sudo systemctl start user@$(id -u $USER)' >>'/home/$USER/.profile'
 	    RUN echo 'mkdir -p /run/user/$(id -u $USER)/gnupg' >>'/home/$USER/.profile'
 	    RUN echo 'ln -sf /var/gnupg/S.gpg-agent /home/$USER/.gnupg/S.gpg-agent' >>'/home/$USER/.profile'
-	    RUN echo 'curl -L github.com/cwarlich/yadm/raw/main/install | sudo bash' >>'/home/$USER/.profile'
 	    $(if [[ $# -ge 1 ]]; then
 	        echo "RUN echo 'yadm clone $1' >>'/home/$USER/.profile'"
 	        if [[ $# -ge 2 ]]; then
-	            echo "RUN echo 'yadm checkout --bootstrap $2' >>'/home/$USER/.profile'"
+	            echo "	RUN echo 'yadm checkout --bootstrap $2' >>'/home/$USER/.profile'"
 	        else
-	            echo "RUN echo 'echo Run \"yadm checkout --bootstrap <commitish>\"' >>'/home/$USER/.profile'"
+	            echo "	RUN echo 'echo Run \"yadm checkout --bootstrap <commitish>\"' >>'/home/$USER/.profile'"
 	        fi
 	    else
 	        echo "RUN echo 'echo Run \"yadm clone <dotfile-repo>\"' >>'/home/$USER/.profile'"
-	        echo "RUN echo 'echo and \"yadm checkout --bootstrap <commitish>\"' >>'/home/$USER/.profile'"
+	        echo "	RUN echo 'echo and \"yadm checkout --bootstrap <commitish>\"' >>'/home/$USER/.profile'"
 	    fi)
 	    RUN echo 'exec bash -l' >>'/home/$USER/.profile'
 	EOF
@@ -791,15 +792,14 @@ function checkout() {
     shift
   done
 
-  git_command checkout "${args[@]}"
+  git_command checkout --recurse-submodules "${args[@]}"
+  git submodule update --init --recursive
 
   "$GIT_PROGRAM" ls-files --deleted | while IFS= read -r file; do
       "$GIT_PROGRAM" checkout -- ":/$file"
   done
 
-  if [[ $do_submodules -ne 0 ]]; then
-      "$GIT_PROGRAM" submodule update --recursive
-  fi
+  #"$GIT_PROGRAM" submodule update --init --recursive
 
   if [ -n "$("$GIT_PROGRAM" ls-files --modified)" ]; then
     local msg
@@ -902,8 +902,6 @@ function clone() {
     done
   fi
 
-  "$GIT_PROGRAM" submodule init
-
   # finally check out (unless instructed not to) all files that don't exist in $YADM_WORK
   if [[ $do_checkout -ne 0 ]]; then
       [ -n "$DEBUG" ] && display_private_perms "pre-checkout"
@@ -915,7 +913,7 @@ function clone() {
       done
 
       if [[ $do_submodules -ne 0 ]]; then
-          "$GIT_PROGRAM" submodule update --recursive
+          "$GIT_PROGRAM" submodule update --init --recursive
       fi
 
       if [ -n "$("$GIT_PROGRAM" ls-files --modified)" ]; then
@@ -937,11 +935,12 @@ EOF
 
       CHANGES_POSSIBLE=1
   else
-      if ! git_command rev-parse --verify yadm_empty 2>/dev/null; then
-          git_command branch yadm_empty $(true | git_command commit-tree $(true | git_command mktree))
-      fi
       cd_work "Clone" || return
-      git_command checkout yadm_empty
+      $GIT_PROGRAM config user.name "YADM"
+      $GIT_PROGRAM config user.email "<>"
+      $GIT_PROGRAM checkout --detach $(true | $GIT_PROGRAM commit-tree $(true | $GIT_PROGRAM mktree))
+      $GIT_PROGRAM config --unset user.name
+      $GIT_PROGRAM config --unset user.email
   fi
 
 }
